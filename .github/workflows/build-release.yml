@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux/archlinux:latest
+      options: --privileged
 
     env:
       ARCHISO_SOURCE_URL: https://codeberg.org/shkouyo/sk-archiso/archive/main.tar.gz
