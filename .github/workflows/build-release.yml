@@ -2,6 +2,15 @@ name: Build and Release ArchISO
 
 on:
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: Release type to publish
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - release
   schedule:
     - cron: "0 0 * * 0"
 
@@ -36,7 +45,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            release_mode="release"
+          else
+            release_mode="${{ github.event.inputs.release_mode || 'preview' }}"
+          fi
+
+          if [[ "${release_mode}" == "preview" ]]; then
             timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             unix_ts="$(date -u +%s)"
             release_name="preview-${timestamp}"
@@ -50,6 +65,7 @@ jobs:
           fi
 
           {
+            echo "release_mode=${release_mode}"
             echo "release_name=${release_name}"
             echo "release_tag=${release_tag}"
             echo "prerelease=${prerelease}"
@@ -96,6 +112,7 @@ jobs:
         shell: bash
         env:
           GH_REPO: ${{ github.repository }}
+          RELEASE_MODE: ${{ steps.meta.outputs.release_mode }}
           RELEASE_NAME: ${{ steps.meta.outputs.release_name }}
           RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
@@ -110,7 +127,7 @@ jobs:
             done < <(find "${OUT_DIR}" -type f -print0 | sort -z)
           }
 
-          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+          if [[ "${RELEASE_MODE}" == "release" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
             gh api \
               --method PATCH \
