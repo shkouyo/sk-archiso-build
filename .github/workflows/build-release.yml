@@ -95,6 +95,7 @@ jobs:
       - name: Publish release
         shell: bash
         env:
+          GH_REPO: ${{ github.repository }}
           RELEASE_NAME: ${{ steps.meta.outputs.release_name }}
           RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
