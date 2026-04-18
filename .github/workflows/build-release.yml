@@ -60,12 +60,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          temp_root="$(mktemp -d)"
+          temp_root="$(mktemp -d "${RUNNER_TEMP%/}/sk-archiso.XXXXXX")"
           src_root="${temp_root}/src"
           archive_path="${temp_root}/source.tar.gz"
           out_dir="${temp_root}/out"
           work_dir="${temp_root}/work"
 
+          echo "Using temp root: ${temp_root}"
           mkdir -p "${src_root}"
           curl -L "${ARCHISO_SOURCE_URL}" -o "${archive_path}"
           tar -xzf "${archive_path}" -C "${src_root}"
