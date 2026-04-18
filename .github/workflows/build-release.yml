@@ -1,0 +1,140 @@
+name: Build and Release ArchISO
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux/archlinux:latest
+
+    env:
+      ARCHISO_SOURCE_URL: https://codeberg.org/shkouyo/sk-archiso/archive/main.tar.gz
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Sy --noconfirm archiso curl tar github-cli
+
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            unix_ts="$(date -u +%s)"
+            release_name="preview-${timestamp}"
+            release_tag="preview-${unix_ts}"
+            prerelease="true"
+          else
+            release_date="$(date -u +%Y-%m-%d)"
+            release_name="${release_date}"
+            release_tag="release-${release_date}"
+            prerelease="false"
+          fi
+
+          {
+            echo "release_name=${release_name}"
+            echo "release_tag=${release_tag}"
+            echo "prerelease=${prerelease}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build ArchISO
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          temp_root="$(mktemp -d)"
+          src_root="${temp_root}/src"
+          archive_path="${temp_root}/source.tar.gz"
+          out_dir="${temp_root}/out"
+          work_dir="${temp_root}/work"
+
+          mkdir -p "${src_root}"
+          curl -L "${ARCHISO_SOURCE_URL}" -o "${archive_path}"
+          tar -xzf "${archive_path}" -C "${src_root}"
+
+          config_dir="$(find "${src_root}" -type d -name sk-archiso | head -n 1)"
+          if [[ -z "${config_dir}" ]]; then
+            echo "Unable to locate extracted sk-archiso directory" >&2
+            exit 1
+          fi
+
+          mkarchiso -v -o "${out_dir}" -w "${work_dir}" "${config_dir}"
+
+          if [[ ! -d "${out_dir}" ]]; then
+            echo "mkarchiso did not create output directory" >&2
+            exit 1
+          fi
+
+          if ! find "${out_dir}" -type f -print -quit | grep -q .; then
+            echo "No build artifacts found in output directory" >&2
+            exit 1
+          fi
+
+          echo "out_dir=${out_dir}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish release
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.meta.outputs.release_name }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          OUT_DIR: ${{ steps.build.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+
+          upload_assets() {
+            local tag="$1"
+            while IFS= read -r -d '' asset; do
+              gh release upload "${tag}" "${asset}" --clobber
+            done < <(find "${OUT_DIR}" -type f -print0 | sort -z)
+          }
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f name="${RELEASE_NAME}" \
+              -F prerelease=false \
+              -F draft=false
+
+            while IFS= read -r asset_id; do
+              [[ -n "${asset_id}" ]] || continue
+              gh api \
+                --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            done < <(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].id')
+
+            upload_assets "${RELEASE_TAG}"
+          else
+            create_args=(
+              "${RELEASE_TAG}"
+              --title "${RELEASE_NAME}"
+              --notes ""
+            )
+
+            if [[ "${PRERELEASE}" == "true" ]]; then
+              create_args+=(--prerelease)
+            fi
+
+            gh release create "${create_args[@]}"
+            upload_assets "${RELEASE_TAG}"
+          fi
