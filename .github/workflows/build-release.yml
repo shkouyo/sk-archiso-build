@@ -29,7 +29,7 @@ jobs:
       options: --privileged
 
     env:
-      ARCHISO_SOURCE_URL: https://codeberg.org/shkouyo/sk-archiso/archive/main.tar.gz
+      ARCHISO_SOURCE_REPO: https://codeberg.org/shkouyo/sk-archiso.git
       GH_TOKEN: ${{ github.token }}
 
     steps:
@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pacman -Sy --noconfirm archiso curl tar github-cli
+          pacman -Sy --noconfirm archiso git github-cli
 
       - name: Compute release metadata
         id: meta
@@ -78,19 +78,15 @@ jobs:
           set -euo pipefail
 
           temp_root="$(mktemp -d "${RUNNER_TEMP%/}/sk-archiso.XXXXXX")"
-          src_root="${temp_root}/src"
-          archive_path="${temp_root}/source.tar.gz"
+          config_dir="${temp_root}/sk-archiso"
           out_dir="${temp_root}/out"
           work_dir="${temp_root}/work"
 
           echo "Using temp root: ${temp_root}"
-          mkdir -p "${src_root}"
-          curl -L "${ARCHISO_SOURCE_URL}" -o "${archive_path}"
-          tar -xzf "${archive_path}" -C "${src_root}"
+          git clone --depth 1 --branch main "${ARCHISO_SOURCE_REPO}" "${config_dir}"
 
-          config_dir="$(find "${src_root}" -type d -name sk-archiso | head -n 1)"
-          if [[ -z "${config_dir}" ]]; then
-            echo "Unable to locate extracted sk-archiso directory" >&2
+          if [[ ! -d "${config_dir}" ]]; then
+            echo "Unable to locate cloned sk-archiso directory" >&2
             exit 1
           fi
 
