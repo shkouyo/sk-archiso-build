@@ -119,8 +119,20 @@ jobs:
           upload_assets() {
             local tag="$1"
             while IFS= read -r -d '' asset; do
-              gh release upload "${tag}" "${asset}" --clobber
+              gh release upload "${tag}" "${asset}" --clobber || return 1
             done < <(find "${OUT_DIR}" -type f -print0 | sort -z)
+          }
+
+          upload_assets_with_cleanup() {
+            local tag="$1"
+
+            if upload_assets "${tag}"; then
+              return 0
+            fi
+
+            echo "Asset upload failed; deleting release and tag ${tag}" >&2
+            gh release delete "${tag}" --cleanup-tag --yes || true
+            return 1
           }
 
           prepare_release_assets() {
@@ -184,5 +196,5 @@ jobs:
             fi
 
             gh release create "${create_args[@]}"
-            upload_assets "${RELEASE_TAG}"
+            upload_assets_with_cleanup "${RELEASE_TAG}"
           fi
