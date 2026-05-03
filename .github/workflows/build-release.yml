@@ -123,6 +123,38 @@ jobs:
             done < <(find "${OUT_DIR}" -type f -print0 | sort -z)
           }
 
+          prepare_release_assets() {
+            [[ "${RELEASE_MODE}" == "release" ]] || return 0
+
+            local fixed_iso="${OUT_DIR}/sk_archiso-x86_64.iso"
+            local -a source_isos=()
+            local iso
+
+            while IFS= read -r -d '' iso; do
+              [[ "$(basename "${iso}")" != "sk_archiso-x86_64.iso" ]] || continue
+              source_isos+=("${iso}")
+            done < <(find "${OUT_DIR}" -type f -name "*.iso" -print0 | sort -z)
+
+            if [[ "${#source_isos[@]}" -eq 0 ]]; then
+              if [[ -f "${fixed_iso}" ]]; then
+                return 0
+              fi
+
+              echo "No source ISO artifact found in ${OUT_DIR}" >&2
+              exit 1
+            fi
+
+            if [[ "${#source_isos[@]}" -gt 1 ]]; then
+              printf 'Expected exactly one source ISO artifact, found %s:\n' "${#source_isos[@]}" >&2
+              printf '  %s\n' "${source_isos[@]}" >&2
+              exit 1
+            fi
+
+            cp -f -- "${source_isos[0]}" "${fixed_iso}"
+          }
+
+          prepare_release_assets
+
           if [[ "${RELEASE_MODE}" == "release" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
             gh api \
